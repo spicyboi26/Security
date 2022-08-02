@@ -11,9 +11,10 @@ const GoogleStrategy = require("passport-google-oauth20").Strategy;
 const findOrCreate = require("mongoose-findorcreate");
 
 const app = express();
+
+app.use(express.static("public"));
 app.set("view engine", "ejs");
 app.use(bodyParser.urlencoded({ extended: true }));
-app.use(express.static("public"));
 
 app.use(
   session({
@@ -27,22 +28,32 @@ app.use(passport.initialize());
 app.use(passport.session());
 
 mongoose.connect("mongodb://localhost:27017/userDB", { useNewUrlParser: true });
+//mongoose.set("useCreateIndex", true);
 
 userSchema = new mongoose.Schema({
   email: String,
   password: String,
   googleId: String,
+  secret: String,
 });
 
 userSchema.plugin(passportLocalMongoose);
 userSchema.plugin(findOrCreate);
 
-User = mongoose.model("User", userSchema);
+const User = new mongoose.model("User", userSchema);
 
 passport.use(User.createStrategy());
 
-passport.serializeUser(User.serializeUser());
-passport.deserializeUser(User.deserializeUser());
+passport.serializeUser(function(user, done) {
+  done(null, user.id);
+});
+
+passport.deserializeUser(function(id, done) {
+  User.findById(id, function(err, user) {
+    done(err, user);
+  });
+});
+
 
 passport.use(
   new GoogleStrategy(
@@ -64,11 +75,36 @@ app.get("/", (req, res) => {
 });
 
 app.get("/secrets", (req, res) => {
+  User.find({ "secret": { $ne: null } }, (err, users) => {
+    if (err) {
+      console.log(err);
+    } else {
+      if (users) {
+        res.render("secrets", { usersWithSecrets: users });
+      }
+    }
+  });
+});
+
+app.get("/submit", (req, res) => {
   if (req.isAuthenticated()) {
-    res.render("secrets");
+    res.render("submit");
   } else {
     res.redirect("/login");
   }
+});
+
+app.post("/submit", (req, res) => {
+  const submittedSecret = req.body.secret;
+  User.findById(req.user.id, (err, user) => {
+    if (err) {
+      console.log(err);
+    } else {
+      user.secret = submittedSecret;
+      user.save();
+      res.redirect("/secrets");
+    }
+  });
 });
 
 app.get("/login", (req, res) => {
